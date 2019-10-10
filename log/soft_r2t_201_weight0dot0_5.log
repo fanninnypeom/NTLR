@@ -1,0 +1,12 @@
+2
+cuda
+Traceback (most recent call last):
+  File "train.py", line 435, in <module>
+    main()      
+  File "train.py", line 432, in main
+    train(dataset, model_name)
+  File "train.py", line 428, in train
+    model = multi_mode(device, mu, cov, region_num = region_num, topic_num = topic_num, loc_num = loc_num).to(device)
+  File "/home/wuning/NTLR/model.py", line 196, in __init__
+    self.mu = torch.nn.Parameter(torch.tensor(init_mu, dtype=torch.float, device=device)) # region_num * 2
+RuntimeError: CUDA error: out of memory

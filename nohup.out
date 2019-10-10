@@ -1,0 +1,5 @@
+cuda
+epoch:  0 batch:  0 topic_loss:  39.71916198730469
+epoch:  0 batch:  10 topic_loss:  29.548566818237305
+epoch:  0 batch:  20 topic_loss:  28.021833419799805
+epoch:  0 batch:  30 topic_loss:  29.63119125366211
