@@ -157,6 +157,7 @@ class multi_mode(nn.Module):
                time_emb_size = 128,
                topic_num = 201,
                topic_emb_size = 32,
+               topic_emb_plus = 32,
                loc_hidden_size = 512,
                topic_hidden_size = 512, 
                batch_size = 50):
@@ -193,6 +194,9 @@ class multi_mode(nn.Module):
     self.gmb_topic_emb_layer = nn.Linear(topic_num, topic_emb_size, bias = False)
     self.gmb_region_emb_layer = nn.Linear(region_num, region_emb_size, bias = False)
     self.emb_loc_layer = nn.Linear(region_emb_size, loc_num)
+    self.r2t_attn = nn.Linear(region_emb_size + topic_emb_size, 1)
+    self.loc_topic_r2t_layer = nn.Linear(loc_hidden_size + topic_emb_size, topic_num)
+    self.topic_dim_plus = nn.Linear(topic_emb_size, topic_emb_plus)
     self.mu = torch.nn.Parameter(torch.tensor(init_mu, dtype=torch.float, device=device)) # region_num * 2
     self.cov = torch.nn.Parameter(torch.tensor(init_cov, dtype=torch.float, device=device)) # region_num * 4   a
     self.register_parameter("region_mu", self.mu)
@@ -230,28 +234,41 @@ class multi_mode(nn.Module):
 #    mode_sample = mode_prob.sample()
 #    ctn_sample = ctn_prob.sample()
 ################ mode 1 topic-region   topic2region matrix
-#    m1_topic_dist = self.loc_topic_layer(self.loc_output[0])
-#    m1_topic_prob = torch.distributions.Categorical(self.softmax(m1_topic_dist, dim = 1))
-#    m1_topic_sample = torch.argmax(m1_topic_dist, 1)#topic_prob.sample()
-#    m1_topic_sample_emb = self.topic_emb(m1_topic_sample).view(-1, self.topic_emb_size)
 
-#    stack_geo_batch = geo_batch.view(self.batch_size, 1, 2).repeat(1, self.region_num, 1).view(-1, 2)    
-#    stack_mu =  self.mu.repeat(self.batch_size, 1)
-#    stack_cov = self.cov.repeat(self.batch_size, 1)
+    m2_stack_geo_batch = geo_batch.view(self.batch_size, 1, 2).repeat(1, self.region_num, 1).view(-1, 2)    
+    m2_stack_mu =  self.mu.repeat(self.batch_size, 1)
+    m2_stack_cov = self.cov.repeat(self.batch_size, 1)
     
-#    aaa = -0.5 * torch.matmul((stack_geo_batch - stack_mu).view(-1, 1, 2) * (1 / stack_cov).view(-1, 1, 2), (stack_geo_batch - stack_mu).view(-1, 2, 1))
-#    aaa = aaa.view(-1, 1)
-#    bbb = 2 * math.pi * torch.sqrt(stack_cov[:, 0] * stack_cov[:, 1]).view(-1, 1)
-#    geo_gaussian_dist = aaa / bbb
+    m2_aaa = -0.5 * torch.matmul((m2_stack_geo_batch - m2_stack_mu).view(-1, 1, 2) * (1 / m2_stack_cov).view(-1, 1, 2), (m2_stack_geo_batch - m2_stack_mu).view(-1, 2, 1))
+    m2_aaa = m2_aaa.view(-1, 1)
+    m2_bbb = 2 * math.pi * torch.sqrt(m2_stack_cov[:, 0] * m2_stack_cov[:, 1]).view(-1, 1)
+    m2_geo_gaussian_dist = m2_aaa / m2_bbb
+     
+    m2_region_dist = m2_geo_gaussian_dist.view(self.batch_size, self.region_num) #* self.loc_region_layer(self.loc_output[0]) 
+    m2_region_prob = torch.distributions.Categorical(m2_region_dist)
+    m2_region_sample = m2_region_prob.sample()
+    m2_region_gumbel_sample = F.gumbel_softmax(m2_region_dist, tau = 0.1, hard = False)
+    m2_region_gumbel_sample_emb = self.gmb_region_emb_layer(m2_region_gumbel_sample)
+    m2_region_sample_emb = self.region_emb(m2_region_sample).view(-1, self.region_emb_size)
+    m2_topic_attn = self.r2t_attn(torch.cat((m2_region_gumbel_sample_emb.unsqueeze(1).repeat(1, self.topic_num, 1), torch.transpose(self.gmb_topic_emb_layer.weight, 1, 0).unsqueeze(0).repeat(self.batch_size, 1, 1)), 2)).squeeze(dim = -1)
+    m2_r2t_info = torch.matmul(self.softmax(m2_topic_attn, 1), torch.transpose(self.gmb_topic_emb_layer.weight, 1, 0)) 
+    m2_topic_dist = 2 * m2_topic_attn + self.loc_topic_layer(self.topic_output[0])
+    m2_topic_prob = torch.distributions.Categorical(self.softmax(m2_topic_dist, dim = 1))
+    m2_topic_sample_arr = []
+    m2_loc_dist_arr = []
+    for i in range(2):
+      m2_topic_gumbel_sample = F.gumbel_softmax(m2_topic_dist, tau = 0.1, hard = False)  
+      m2_topic_gumbel_sample_emb = self.gmb_topic_emb_layer(m2_topic_gumbel_sample)
+      m2_topic_sample_arr.append(m2_topic_gumbel_sample)
+      m2_loc_dist = self.cat_output_layer(torch.cat((self.loc_output[0], m2_topic_gumbel_sample_emb, m2_region_gumbel_sample_emb), 1))
+      m2_loc_dist_arr.append(m2_loc_dist)
+    m2_topic_sample_arr = torch.cat(m2_topic_sample_arr, 0)  
+    m2_loc_dist_arr = torch.cat(m2_loc_dist_arr, 0)  
 
-#    m1_region_dist = torch.relu(torch.matmul(m1_topic_sample_emb, torch.transpose(self.region_emb.weight.data, 0, 1)) - self.topic_thre) *  geo_gaussian_dist.view(self.batch_size, self.region_num)
- 
-#    m1_region_prob = torch.distributions.Categorical(m1_region_dist)   
-#    m1_region_sample = m1_region_prob.sample()
-#    m1_region_sample_emb = self.region_emb(m1_region_sample).view(-1, self.region_emb_size)
-#    m1_loc_dist = self.cat_output_layer(torch.cat((self.loc_output[0], m1_topic_sample_emb, m1_region_sample_emb), 1))
+    return m2_region_sample, m2_topic_sample_arr, m2_region_dist, m2_topic_dist.repeat(2, 1), m2_loc_dist_arr, loc_hidden, topic_hidden
 
-#    return m1_region_sample, m1_topic_sample, m1_region_dist, m1_topic_dist, m1_loc_dist, loc_hidden
+
+
 ################
       
 ################ mode 2 region-topic
@@ -263,7 +280,6 @@ class multi_mode(nn.Module):
     m2_aaa = m2_aaa.view(-1, 1)
     m2_bbb = 2 * math.pi * torch.sqrt(m2_stack_cov[:, 0] * m2_stack_cov[:, 1]).view(-1, 1)
     m2_geo_gaussian_dist = m2_aaa / m2_bbb
-
      
     m2_region_dist = m2_geo_gaussian_dist.view(self.batch_size, self.region_num) #* self.loc_region_layer(self.loc_output[0]) 
     m2_region_prob = torch.distributions.Categorical(m2_region_dist)
@@ -271,9 +287,11 @@ class multi_mode(nn.Module):
     m2_region_gumbel_sample = F.gumbel_softmax(m2_region_dist, tau = 0.1, hard = False)
     m2_region_gumbel_sample_emb = self.gmb_region_emb_layer(m2_region_gumbel_sample)
     m2_region_sample_emb = self.region_emb(m2_region_sample).view(-1, self.region_emb_size)
-
-#    m2_topic_dist = m2_region_gumbel_sample_emb, self.gmb_topic_emb_layer.weight + self.loc_topic_layer(self.topic_output[0]) 
-    m2_topic_dist = self.loc_topic_layer(self.topic_output[0])
+    m2_topic_attn = self.r2t_attn(torch.cat((m2_region_gumbel_sample_emb.unsqueeze(1).repeat(1, self.topic_num, 1), torch.transpose(self.gmb_topic_emb_layer.weight, 1, 0).unsqueeze(0).repeat(self.batch_size, 1, 1)), 2)).squeeze(dim = -1)
+#    print(self.gmb_topic_emb_layer.weight.shape)
+    m2_r2t_info = torch.matmul(self.softmax(m2_topic_attn, 1), torch.transpose(self.gmb_topic_emb_layer.weight, 1, 0)) 
+#    m2_topic_dist = m2_topic_attn + self.loc_topic_r2t_layer(torch.cat((self.topic_output[0], m2_r2t_info), 1)) 
+    m2_topic_dist = 2 * m2_topic_attn + self.loc_topic_layer(self.topic_output[0])
     m2_topic_prob = torch.distributions.Categorical(self.softmax(m2_topic_dist, dim = 1))
     m2_topic_sample_arr = []
     m2_loc_dist_arr = []

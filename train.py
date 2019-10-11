@@ -259,10 +259,10 @@ def rl_train_multi_mode(
 #      topic_loss.backward(retain_graph=True) 
 #      region_loss.backward(retain_graph=True)
       loc_loss.backward()
-      
 #      loc_optimizer.step()
 #      topic_gru_loss.backward()
       model_optimizer.step()
+#      print("grad:", model.r2t_attn.weight.grad)
 
       region_losses.append(region_loss.item())
       topic_losses.append(topic_loss.item())
@@ -327,7 +327,7 @@ def rl_train_region(
 #      region_loss.backward(retain_graph=True)
       loc_loss.backward()
       
-#      print("grad:", model.topic_output_layer.weight.grad)
+#      print("grad:", model.loc_topic_r2t_layer.weight.grad)
 #      loc_optimizer.step()
 #      topic_gru_loss.backward()
       model_optimizer.step()
