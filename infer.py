@@ -25,8 +25,8 @@ def multi_mode_evaluate(model, test_topic_set, test_loc_set,test_geo_set, test_u
   all_num = 0
   for topics, locs, geos, users, times in zip(test_topic_set, test_loc_set, test_geo_set, test_user_set, test_time_set):
     for i in range(len(locs) - 1):
-      loc_hidden, topic_hidden = model.initHidden(1) 
-      region_action, topic_action, region_dist, topic_dist, loc_dist, loc_hidden, topic_hidden = model(0,
+      loc_hidden, topic_hidden, mode_hidden = model.initHidden(1) 
+      region_action, topic_action, region_dist, topic_dist, loc_dist, loc_hidden, topic_hidden, mode_hidden = model(0,
                                                             torch.tensor([topics[i + 1]], dtype=torch.long, device=device),
                                                             torch.tensor([(int(geos[i][0]) + 50) * (int(geos[i][1]) + 50) % 10000], dtype=torch.long, device=device),
                                                             torch.tensor([geos[i]], dtype=torch.float, device=device), 
@@ -34,7 +34,8 @@ def multi_mode_evaluate(model, test_topic_set, test_loc_set,test_geo_set, test_u
                                                             torch.tensor([users], dtype=torch.long, device=device),
                                                             torch.tensor([times[i]], dtype=torch.long, device=device),
                                                             loc_hidden,
-                                                            topic_hidden) 
+                                                            topic_hidden,
+                                                            mode_hidden) 
     pred = torch.argmax(loc_dist, 1)
     if pred[0] == locs[-1]:
       hit_num += 1

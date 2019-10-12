@@ -156,10 +156,12 @@ class multi_mode(nn.Module):
                time_num = 100, 
                time_emb_size = 128,
                topic_num = 201,
+               mode_num = 2,
                topic_emb_size = 32,
                topic_emb_plus = 32,
                loc_hidden_size = 512,
                topic_hidden_size = 512, 
+               mode_hidden_size = 512,
                batch_size = 50):
     super(multi_mode, self).__init__()
     self.device = device
@@ -181,6 +183,7 @@ class multi_mode(nn.Module):
     self.time_num = time_num
     self.loc_hidden_size = loc_hidden_size
     self.topic_hidden_size = topic_hidden_size
+    self.mode_hidden_size = mode_hidden_size
     self.batch_size = batch_size
     self.mode_gru = nn.GRU(self.loc_emb_size + self.user_emb_size + self.time_emb_size, loc_hidden_size)
     self.loc_gru = nn.GRU(self.loc_emb_size + self.user_emb_size + self.time_emb_size, loc_hidden_size)
@@ -188,6 +191,7 @@ class multi_mode(nn.Module):
     self.topic_region_layer = nn.Linear(topic_emb_size, region_num)
     self.loc_region_layer = nn.Linear(loc_hidden_size, region_num)
     self.loc_topic_layer = nn.Linear(loc_hidden_size, topic_num)
+    self.loc_mode_layer = nn.Linear(loc_hidden_size, mode_num)
     self.loc_region_topic_layer = nn.Linear(topic_hidden_size + region_emb_size, topic_num)
     self.emb_region_layer = nn.Linear(region_emb_size, region_num)
     self.cat_output_layer = nn.Linear(region_emb_size + topic_emb_size + loc_hidden_size, loc_num)
@@ -217,7 +221,7 @@ class multi_mode(nn.Module):
     self.dropout = torch.nn.Dropout(0.0)
 #    self.topic_thre = 0.001
 #    self.region_thre = 0.000
-  def forward(self, pretrain, topic_batch, geo_token_batch, geo_batch, loc_batch, user_batch, time_batch, loc_hidden, topic_hidden):
+  def forward(self, pretrain, topic_batch, geo_token_batch, geo_batch, loc_batch, user_batch, time_batch, loc_hidden, topic_hidden, mode_hidden):
     self.batch_size = loc_batch.shape[0]
     loc_batch_emb = self.loc_emb(loc_batch).view(1, -1, self.loc_emb_size) 
 
@@ -231,7 +235,7 @@ class multi_mode(nn.Module):
     topic_batch_emb = self.topic_emb(topic_batch)
     self.loc_output, loc_hidden = self.loc_gru(torch.cat((loc_batch_emb, user_batch_emb, time_batch_emb), 2), loc_hidden)
     self.topic_output, topic_hidden = self.topic_gru(torch.cat((loc_batch_emb, user_batch_emb, time_batch_emb), 2), topic_hidden)
-
+    self.mode_output, mode_hidden = self.mode_gru(torch.cat((loc_batch_emb, user_batch_emb, time_batch_emb), 2), mode_hidden)
 
 ##############  draw mode and continue variable
 
@@ -306,19 +310,18 @@ class multi_mode(nn.Module):
 
 #############  mode 3  unchange
 
-
     mode_dist = self.loc_mode_layer(self.mode_output[0]) 
-    mode_gumbel_sample = F.gumbel_softmax(mode_dist, tau = 0.1, hard = False)
-    mode_gumbel_sample_emb = self.gmb_mode_emb_layer(mode_gumbel_sample)
-    m_loc_dist = torch.einsum("bi,bij->bj", mode_gumbel_sample, torch.cat(m1_loc_dist.unsqueeze(1), m2_loc_dist.unsqueeze(1), 1))
+    mode_gumbel_sample = F.gumbel_softmax(mode_dist, tau = 10.0, hard = False)
+#    print(mode_gumbel_sample.shape)
+#    m_loc_dist = torch.einsum("bi,bij->bj", mode_gumbel_sample, torch.cat((m1_loc_dist.unsqueeze(1), m2_loc_dist.unsqueeze(1)), 1))
+    m_loc_dist = 0.5 * m1_loc_dist + 0.5 * m2_loc_dist
 
-
-    return m2_region_gumbel_sample, m2_topic_gumbel_sample, m2_region_dist, m2_topic_dist, m_loc_dist, loc_hidden, topic_hidden
+    return m2_region_gumbel_sample, m2_topic_gumbel_sample, m2_region_dist, m2_topic_dist, m_loc_dist, loc_hidden, topic_hidden, mode_hidden
 
 #    return f_loc_dist, f_topic_sample, f_region_sample
    
   def initHidden(self, batch_size):
-    return torch.zeros(1, batch_size, self.loc_hidden_size, device=self.device), torch.zeros(1, batch_size, self.topic_hidden_size, device=self.device)
+    return torch.zeros(1, batch_size, self.loc_hidden_size, device=self.device), torch.zeros(1, batch_size, self.topic_hidden_size, device=self.device), torch.zeros(1, batch_size, self.mode_hidden_size, device=self.device)
 
    
        
