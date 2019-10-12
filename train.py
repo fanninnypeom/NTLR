@@ -235,10 +235,9 @@ def rl_train_multi_mode(
       reward_print = None
       for time_step in range(0, input_geo.shape[1] - 1):
         region_action, topic_action, region_dist, topic_dist, loc_dist, loc_hidden, topic_hidden = model(0, input_topic[:, time_step], input_geo_token[:, time_step], input_geo[:, time_step], input_loc[:, time_step], input_user, input_time[:, time_step], loc_hidden, topic_hidden)
-        loc_loss += criterion(loc_dist[: input_loc.shape[0], :], input_loc[:, time_step + 1])
+        loc_loss += criterion(loc_dist[:, :], input_loc[:, time_step + 1])
         loc_prob = torch.distributions.Categorical(torch.softmax(loc_dist, dim = 1))
-        input_loc_arr = input_loc[:, time_step + 1].view(-1, 1).repeat(2, 1)
-        rewards = loc_prob.log_prob(input_loc_arr.view(-1))
+        rewards = loc_prob.log_prob(input_loc[:, time_step + 1])
 #        loc_loss += - rewards[: input_loc.shape[0]].mean()
 #        rewards = torch.softmax(loc_dist, dim = 1).gather(1, input_loc[:, time_step + 1].view(-1, 1))#[input_loc[:, time_step + 1]]
         reward = (rewards - rewards.mean()) / (rewards.std() + np.finfo(np.float32).eps)
